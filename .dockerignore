@@ -1,0 +1,9 @@
+target/
+*.iml
+.idea/
+.git/
+.github/
+contract/
+docs/
+**/node_modules/
+*.md

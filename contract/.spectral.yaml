@@ -1,0 +1,33 @@
+extends:
+  - spectral:oas
+rules:
+  # Brief: every operation states whether it is safe, idempotent or neither.
+  operation-safety-declared:
+    description: Every operation must declare x-safety (safe, idempotent or neither).
+    severity: error
+    given: $.paths[*][get,put,post,patch,delete]
+    then:
+      field: x-safety
+      function: enumeration
+      functionOptions:
+        values: [safe, idempotent, neither]
+  operation-safety-present:
+    description: x-safety is required on every operation.
+    severity: error
+    given: $.paths[*][get,put,post,patch,delete]
+    then:
+      field: x-safety
+      function: truthy
+  # Brief: every failure returns an error shape the interface can act on.
+  error-responses-use-error-schema:
+    description: 4xx responses declared inline must use the shared Error schema.
+    severity: error
+    given: $.paths[*][*].responses[?(@property >= '400' && @property < '500' && @.content)].content.application/json.schema
+    then:
+      field: $ref
+      function: pattern
+      functionOptions:
+        match: '#/components/schemas/Error$'
+  operation-description: off
+  oas3-api-servers: error
+  info-contact: off

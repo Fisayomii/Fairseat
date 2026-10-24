@@ -1,0 +1,94 @@
+name: api
+
+# Pull requests always run (no path filter): the checks below are required on main, and a required
+# check that never starts would block a PR that only touches docs.
+on:
+  pull_request:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: api-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  contract-lint:
+    name: Contract lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: contract/package-lock.json
+      - run: npm ci
+        working-directory: contract
+      - name: Validate OpenAPI (Spectral, warnings fail)
+        run: npm run lint:contract
+        working-directory: contract
+
+  build-and-test:
+    name: Build and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+      # validate (checkstyle) -> compile -> unit tests -> package -> integration tests on real Postgres (Testcontainers).
+      - name: mvn verify
+        run: mvn -B -ntp verify
+      - name: Upload test reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            target/surefire-reports
+            target/failsafe-reports
+          retention-days: 7
+
+  deploy:
+    name: Deploy
+    needs: [contract-lint, build-and-test]
+    # Only main, only after every check above is green.
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency:
+      group: deploy-api
+      cancel-in-progress: false
+    env:
+      DEPLOY_HOOK: ${{ secrets.API_DEPLOY_HOOK }}
+      API_URL: ${{ vars.API_URL }}
+    steps:
+      - name: Trigger deploy on the host
+        run: |
+          if [ -z "$DEPLOY_HOOK" ]; then
+            echo "::warning::API_DEPLOY_HOOK secret not set yet; skipping deploy."
+            exit 0
+          fi
+          curl -fsS -X POST "$DEPLOY_HOOK" > /dev/null
+      - name: Wait for the service to report healthy
+        if: env.DEPLOY_HOOK != '' && env.API_URL != ''
+        run: |
+          # Free hosts build the image and may be waking from sleep: allow up to 10 minutes.
+          # The host keeps the old version up until the new one passes its own health check,
+          # so give the build a head start before polling.
+          sleep 90
+          for i in $(seq 1 60); do
+            if curl -fsS "$API_URL/actuator/health" | grep -q '"status":"UP"'; then
+              echo "Healthy after $((i * 10))s"; exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::Service did not report healthy within 10 minutes"; exit 1

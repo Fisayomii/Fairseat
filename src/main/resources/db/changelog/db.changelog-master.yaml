@@ -1,0 +1,12 @@
+# Every change is a new file under changes/, listed here in order. Never edit a changeset that has run.
+# Every changeset carries a rollback, and CI proves it (from Fri 30 Oct).
+databaseChangeLog:
+  - changeSet:
+      id: 000-baseline
+      author: team4
+      comment: Empty starting point so the first deploy has a tag to roll back to.
+      changes:
+        - tagDatabase:
+            tag: v0-baseline
+  # - include:
+  #     file: db/changelog/changes/001-core.sql   # Okechukwu, Fri 23 Oct

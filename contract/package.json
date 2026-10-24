@@ -1,0 +1,14 @@
+{
+  "name": "fairseat-contract",
+  "private": true,
+  "description": "Contract tooling for FairSeat: lint the OpenAPI file and run the mock server.",
+  "scripts": {
+    "mock": "prism mock openapi.yaml --port 4011 --host 0.0.0.0",
+    "mock:dynamic": "prism mock openapi.yaml --port 4011 --host 0.0.0.0 --dynamic",
+    "lint:contract": "spectral lint openapi.yaml --fail-severity=warn"
+  },
+  "devDependencies": {
+    "@stoplight/prism-cli": "5.16.0",
+    "@stoplight/spectral-cli": "6.17.0"
+  }
+}
