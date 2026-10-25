@@ -20,7 +20,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Component
 public class OfferSweeper {
 
-    private static final Logger log = LoggerFactory.getLogger(OfferSweeper.class);
+    private static final Logger LOG = LoggerFactory.getLogger(OfferSweeper.class);
 
     private final SignupRepository signups;
     private final EventRepository events;
@@ -43,11 +43,11 @@ public class OfferSweeper {
                 tx.executeWithoutResult(s -> events.lockForUpdate(eventId).ifPresent(allocator::applyExpiry));
                 done++;
             } catch (RuntimeException e) {
-                log.error("Offer sweep failed event={}", eventId, e);
+                LOG.error("Offer sweep failed event={}", eventId, e);
             }
         }
         if (done > 0) {
-            log.info("Offer sweep processed {} event(s)", done);
+            LOG.info("Offer sweep processed {} event(s)", done);
         }
         return done;
     }

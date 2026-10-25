@@ -20,7 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class SessionController {
 
-    private static final Logger log = LoggerFactory.getLogger(SessionController.class);
+    private static final Logger LOG = LoggerFactory.getLogger(SessionController.class);
 
     public record SessionRequest(@NotBlank @Email @Size(max = 254) String email,
                                  @NotBlank @Size(max = 128) String password) {
@@ -51,12 +51,12 @@ public class SessionController {
         var user = users.findByEmail(req.email());
         boolean ok = passwords.matches(req.password(), user.map(UserRepository.UserRow::passwordHash).orElse(dummyHash));
         if (user.isEmpty() || !ok) {
-            log.info("Sign-in refused");
+            LOG.info("Sign-in refused");
             throw new ApiException(ErrorCode.INVALID_CREDENTIALS, "That email and password do not match an account.");
         }
         var u = user.get();
         var issued = tokens.issue(u.id(), u.role(), u.displayName());
-        log.info("Signed in user={} role={}", u.id(), u.role());
+        LOG.info("Signed in user={} role={}", u.id(), u.role());
         return new SessionView(issued.token(), issued.expiresAt(),
                 new UserView(u.id(), u.email(), u.displayName(), u.role()));
     }

@@ -24,7 +24,7 @@ import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 @Configuration
 public class JwtConfig {
 
-    private static final Logger log = LoggerFactory.getLogger(JwtConfig.class);
+    private static final Logger LOG = LoggerFactory.getLogger(JwtConfig.class);
     static final String DEV_SECRET = "local-dev-only-secret-set-JWT_SECRET-in-prod-0123456789";
 
     private final SecretKey key;
@@ -35,7 +35,7 @@ public class JwtConfig {
             throw new IllegalStateException("fairseat.jwt.secret (JWT_SECRET) must be at least 32 bytes for HS256");
         }
         if (DEV_SECRET.equals(secret)) {
-            log.warn("Using the built-in development JWT secret. Set JWT_SECRET on the deployed service.");
+            LOG.warn("Using the built-in development JWT secret. Set JWT_SECRET on the deployed service.");
         }
         this.key = new SecretKeySpec(bytes, "HmacSHA256");
     }

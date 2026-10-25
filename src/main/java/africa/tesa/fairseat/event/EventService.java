@@ -28,7 +28,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 public class EventService {
 
-    private static final Logger log = LoggerFactory.getLogger(EventService.class);
+    private static final Logger LOG = LoggerFactory.getLogger(EventService.class);
 
     public record EventCreate(
             @NotBlank @Size(max = 200) String title,
@@ -78,7 +78,7 @@ public class EventService {
         }
         UUID id = events.insert(caller.id(), req.title().trim(), Objects.requireNonNullElse(req.description(), "").trim(),
                 req.category(), req.location().trim(), req.startsAt(), req.endsAt(), req.seats());
-        log.info("Created event={} organiser={}", id, caller.id());
+        LOG.info("Created event={} organiser={}", id, caller.id());
         return events.findView(id).orElseThrow();
     }
 
@@ -137,7 +137,7 @@ public class EventService {
                 notices.addAll(holders, id, Kind.EVENT_CHANGED,
                         title + " has changed. Check the new time and place.");
             }
-            log.info("Updated event={} by={}", id, caller.id());
+            LOG.info("Updated event={} by={}", id, caller.id());
         });
         return events.findView(id).orElseThrow();
     }
@@ -152,7 +152,7 @@ public class EventService {
             List<UUID> holders = signups.cancelAllActive(id);
             events.markCancelled(id);
             notices.addAll(holders, id, Kind.EVENT_CANCELLED, event.title() + " has been cancelled by the organiser.");
-            log.info("Cancelled event={} by={} notified={}", id, caller.id(), holders.size());
+            LOG.info("Cancelled event={} by={} notified={}", id, caller.id(), holders.size());
         });
         return events.findView(id).orElseThrow();
     }

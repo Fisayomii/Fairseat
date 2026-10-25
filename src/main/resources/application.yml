@@ -41,3 +41,16 @@ management:
   endpoint:
     health:
       show-details: never
+fairseat:
+  jwt:
+    # Set JWT_SECRET (at least 32 characters) on the deployed service. The default is for local runs only.
+    secret: ${JWT_SECRET:local-dev-only-secret-set-JWT_SECRET-in-prod-0123456789}
+  offers:
+    window-hours: 24
+    sweep-enabled: true
+    sweep-interval: PT1M
+
+logging:
+  structured:
+    format:
+      console: logstash

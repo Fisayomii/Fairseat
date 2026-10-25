@@ -8,5 +8,7 @@ databaseChangeLog:
       changes:
         - tagDatabase:
             tag: v0-baseline
-  # - include:
-  #     file: db/changelog/changes/001-core.sql   # Okechukwu, Fri 23 Oct
+  - include:
+      file: db/changelog/changes/001-core-schema.sql
+  - include:
+      file: db/changelog/changes/002-demo-seed.sql

@@ -21,7 +21,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 public class SignupService {
 
-    private static final Logger log = LoggerFactory.getLogger(SignupService.class);
+    private static final Logger LOG = LoggerFactory.getLogger(SignupService.class);
 
     /** {@code created} is false when an existing active sign-up was returned unchanged. */
     public record SignUpResult(SignupView signup, boolean created) {
@@ -61,7 +61,7 @@ public class SignupService {
                 }
                 String newStatus = signups.takeSeat(eventId) == 1 ? "GOING" : "WAITING";
                 UUID id = signups.insert(eventId, caller.id(), newStatus);
-                log.info("Signed up signup={} event={} status={}", id, eventId, newStatus);
+                LOG.info("Signed up signup={} event={} status={}", id, eventId, newStatus);
                 return new SignUpResult(view(id), true);
             });
         } catch (DuplicateKeyException e) {
@@ -88,7 +88,7 @@ public class SignupService {
                     // Already CANCELLED or OFFER_EXPIRED: nothing to do.
                 }
             }
-            log.info("Cancel signup={} was={}", signupId, current.status());
+            LOG.info("Cancel signup={} was={}", signupId, current.status());
             return view(signupId);
         });
     }
@@ -98,7 +98,7 @@ public class SignupService {
             var row = ownedBy(caller, signupId);
             LockedEvent event = lock(row.eventId());
             if (signups.acceptLiveOffer(signupId) == 1) {
-                log.info("Accepted offer signup={}", signupId);
+                LOG.info("Accepted offer signup={}", signupId);
                 return new AcceptOutcome(view(signupId), null, null);
             }
             // Not a live offer. Apply any expiry now, and commit it, so the seat moves on even

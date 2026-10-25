@@ -1,67 +1,91 @@
 package africa.tesa.fairseat.config;
 
-import java.time.Duration;
+import africa.tesa.fairseat.auth.TokenService;
+import africa.tesa.fairseat.common.ErrorBody;
+import africa.tesa.fairseat.common.ErrorCode;
+import africa.tesa.fairseat.common.RequestIdFilter;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import java.util.Arrays;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
-import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
-import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
+import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
+import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.authentication.HttpStatusEntryPoint;
+import org.springframework.security.web.access.AccessDeniedHandler;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 /**
- * v0 security: stateless, everything closed except health and sign-in.
- * JWT validation, roles and the Error-shaped 401/403 bodies arrive with the auth work (Fri 23 Oct).
+ * Stateless JWT security. The paths open to visitors are listed here; everything else needs a
+ * token. Which role may do what is decided in the services (EventService, SignupService), so a
+ * direct call to the service is checked the same way as a call from the interface.
  */
 @Configuration
 public class SecurityConfig {
 
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    SecurityFilterChain api(HttpSecurity http) throws Exception {
+        AuthenticationEntryPoint unauthenticated = (req, res, ex) ->
+                write(res, ErrorCode.UNAUTHENTICATED, "Sign in to continue. Your session may have expired.");
+        AccessDeniedHandler denied = (req, res, ex) ->
+                write(res, ErrorCode.FORBIDDEN_ROLE, "Your account type cannot do this.");
+
         http
-            // A token-based API with no cookies, so there is no CSRF exposure to protect against.
-            // The interface is a separate site on its own address, so the browser needs CORS (see corsConfigurationSource).
-            .cors(Customizer.withDefaults())
-            .csrf(AbstractHttpConfigurer::disable)
-            .httpBasic(AbstractHttpConfigurer::disable)
-            .formLogin(AbstractHttpConfigurer::disable)
-            .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-            .authorizeHttpRequests(auth -> auth
-                .requestMatchers(HttpMethod.GET, "/actuator/health").permitAll()
-                .requestMatchers(HttpMethod.POST, "/sessions").permitAll()
-                .requestMatchers(HttpMethod.GET, "/events", "/events/*").permitAll()
-                .anyRequest().authenticated())
-            // Unauthenticated calls get 401, not Spring's default 403, as the contract says.
-            .exceptionHandling(e -> e.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)));
+                .csrf(c -> c.disable())
+                .cors(Customizer.withDefaults())
+                .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .authorizeHttpRequests(a -> a
+                        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/actuator/health").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/sessions").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/events", "/events/*").permitAll()
+                        .requestMatchers("/error").permitAll()
+                        .anyRequest().authenticated())
+                .oauth2ResourceServer(o -> o
+                        .jwt(j -> j.jwtAuthenticationConverter(rolesFromToken()))
+                        .authenticationEntryPoint(unauthenticated)
+                        .accessDeniedHandler(denied))
+                .exceptionHandling(e -> e
+                        .authenticationEntryPoint(unauthenticated)
+                        .accessDeniedHandler(denied));
         return http.build();
     }
 
-    /**
-     * Allows only the interface's own addresses. Set ALLOWED_ORIGINS on the host to the deployed site,
-     * comma-separated, e.g. https://bloodlink.netlify.app. Defaults cover the Vite dev server (5173) and vite preview (4173).
-     */
     @Bean
-    CorsConfigurationSource corsConfigurationSource(
-            @Value("${app.cors.allowed-origins}") List<String> allowedOrigins) {
+    CorsConfigurationSource corsConfigurationSource(@Value("${ALLOWED_ORIGINS:http://localhost:5173}") String origins) {
         CorsConfiguration cors = new CorsConfiguration();
-        cors.setAllowedOrigins(allowedOrigins);
-        cors.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-        cors.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Request-Id", "Idempotency-Key"));
-        // Headers the interface must be able to read from responses.
-        cors.setExposedHeaders(List.of("X-Request-Id", "Idempotent-Replayed", "Location"));
-        // Bearer tokens, no cookies.
-        cors.setAllowCredentials(false);
-        cors.setMaxAge(Duration.ofHours(1));
+        cors.setAllowedOrigins(Arrays.stream(origins.split(",")).map(String::trim).filter(s -> !s.isEmpty()).toList());
+        cors.setAllowedMethods(List.of("GET", "POST", "PATCH", "OPTIONS"));
+        cors.setAllowedHeaders(List.of("Authorization", "Content-Type", RequestIdFilter.HEADER));
+        cors.setExposedHeaders(List.of(RequestIdFilter.HEADER));
+        cors.setMaxAge(3600L);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", cors);
         return source;
+    }
+
+    private static JwtAuthenticationConverter rolesFromToken() {
+        JwtGrantedAuthoritiesConverter authorities = new JwtGrantedAuthoritiesConverter();
+        authorities.setAuthoritiesClaimName(TokenService.ROLES_CLAIM);
+        authorities.setAuthorityPrefix("ROLE_");
+        JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
+        converter.setJwtGrantedAuthoritiesConverter(authorities);
+        return converter;
+    }
+
+    private static void write(HttpServletResponse res, ErrorCode code, String message) throws IOException {
+        res.setStatus(code.status().value());
+        res.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        res.getWriter().write(ErrorBody.of(code, message, null).toJson());
     }
 }

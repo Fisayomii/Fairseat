@@ -24,7 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(propagation = Propagation.MANDATORY)
 public class SeatAllocator {
 
-    private static final Logger log = LoggerFactory.getLogger(SeatAllocator.class);
+    private static final Logger LOG = LoggerFactory.getLogger(SeatAllocator.class);
     static final DateTimeFormatter LAGOS = DateTimeFormatter.ofPattern("EEE d MMM, HH:mm", Locale.UK)
             .withZone(ZoneId.of("Africa/Lagos"));
 
@@ -46,7 +46,7 @@ public class SeatAllocator {
             signups.releaseSeats(event.id(), lapsed.size());
             notices.addAll(lapsed, event.id(), Kind.OFFER_EXPIRED,
                     "Your seat offer for " + event.title() + " expired, so it went to the next person waiting.");
-            log.info("Expired {} offer(s) event={}", lapsed.size(), event.id());
+            LOG.info("Expired {} offer(s) event={}", lapsed.size(), event.id());
         }
         promote(event);
     }
@@ -65,7 +65,7 @@ public class SeatAllocator {
             Instant expires = event.dbNow().plusSeconds(offerWindowHours * 3600L);
             notices.add(next.get().userId(), event.id(), Kind.SEAT_OFFERED,
                     "A seat opened at " + event.title() + ". Accept it before " + LAGOS.format(expires) + " (Lagos time).");
-            log.info("Offered seat signup={} event={}", next.get().id(), event.id());
+            LOG.info("Offered seat signup={} event={}", next.get().id(), event.id());
         }
     }
 }

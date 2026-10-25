@@ -18,11 +18,11 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
 @RestControllerAdvice
 public class ApiExceptionHandler {
 
-    private static final Logger log = LoggerFactory.getLogger(ApiExceptionHandler.class);
+    private static final Logger LOG = LoggerFactory.getLogger(ApiExceptionHandler.class);
 
     @ExceptionHandler(ApiException.class)
     ResponseEntity<ErrorBody> api(ApiException e) {
-        log.info("Refused: {} {}", e.code(), e.getMessage());
+        LOG.info("Refused: {} {}", e.code(), e.getMessage());
         return respond(e.code(), e.getMessage(), e.details());
     }
 
@@ -56,7 +56,7 @@ public class ApiExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     ResponseEntity<ErrorBody> unexpected(Exception e) {
-        log.error("Unhandled error", e);
+        LOG.error("Unhandled error", e);
         return respond(ErrorCode.INTERNAL_ERROR,
                 "Something went wrong on our side. Try again; if it keeps happening, quote the request id.", null);
     }
