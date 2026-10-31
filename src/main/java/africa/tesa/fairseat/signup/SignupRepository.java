@@ -54,7 +54,7 @@ public class SignupRepository {
     public int takeSeat(UUID eventId) {
         return jdbc.sql("""
                         UPDATE events SET seats_taken = seats_taken + 1, updated_at = now()
-                        WHERE id = :id AND seats_taken < seats
+                        WHERE id = :id
                         """)
                 .param("id", eventId)
                 .update();

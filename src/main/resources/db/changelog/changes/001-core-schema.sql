@@ -28,7 +28,6 @@ CREATE TABLE events (
     status       text         NOT NULL DEFAULT 'SCHEDULED' CHECK (status IN ('SCHEDULED', 'CANCELLED')),
     created_at   timestamptz  NOT NULL DEFAULT now(),
     updated_at   timestamptz  NOT NULL DEFAULT now(),
-    CONSTRAINT events_seats_taken_range CHECK (seats_taken BETWEEN 0 AND seats),
     CONSTRAINT events_ends_after_start  CHECK (ends_at > starts_at)
 );
 CREATE INDEX idx_events_starts_at ON events (starts_at);
