@@ -5,13 +5,19 @@ Fair seating and waiting lists for free meetups. This is the service tier; the i
 
 **All people, events and activity in this system are fictional demonstration data.**
 
+- Service: https://fairseat.onrender.com (health: `/actuator/health`)
+- Interface: _Ufoma's deployed address_
+- Contract: [`contract/openapi.yaml`](contract/openapi.yaml)
+
 ## What it does (MVP)
 
 - Organisers create, edit and cancel their own events. Admins can manage any event.
 - Attendees sign up. If a seat is free they are **going**; if not, they join a first-come,
   first-served **waiting** list.
-- When a seat frees up, the next person waiting is **offered** it for 24 hours. If they do not
-  accept in time the offer becomes **offer expired** and the seat goes to the next person.
+- When a seat frees up, the next person waiting is **offered** it. The offer lasts up to 24 hours
+  but ends 1 hour before the event starts (always at least 30 minutes, never past the start; see
+  [ADR 0001](docs/adr/0001-offer-window.md)). If they do not accept in time the offer becomes
+  **offer expired** and the seat goes to the next person.
 - My Events shows each attendee's true status. In-platform notices report seat offers, lapsed
   offers, and event changes or cancellations.
 
@@ -56,12 +62,21 @@ Password for every account: **`FairSeat-demo-2026`**
 - **Product Managers' Breakfast**: Gbenga's offer expired and moved on; Halima holds a live offer.
 - **Figma to Code Workshop**: Kunle's offer lapsed with nobody touching the event. Reads show it
   expired at once; within a minute of start-up the sweeper passes the seat to Ngozi.
-- **Startup Legal Basics**: starts within a day, but its 24-hour offer runs past the start (the
-  open design problem).
+- **Startup Legal Basics**: starts within a day, so Halima's offer ends 1 hour before the start
+  instead of lasting 24 hours (ADR 0001). After a reset only; the original seed predates the rule.
 - **Backend Engineers Lagos**: Amaka cancelled and signed up again; My Events shows her once.
 - **Women in Tech Lagos Mixer** and **Hackathon Kickoff**: cancelled, one upcoming and one past.
 - Past events, an event with no sign-ups, one with one seat left, one with no description, and
   one with a 180-character title.
+
+### Refreshing the demo data before a demo
+
+Seed times are relative to when they were inserted, so after a few days the upcoming cases become
+past events. To make them fresh again, open the Neon console, then **SQL Editor** on the fairseat
+database, paste all of [`tools/reset-demo.sql`](tools/reset-demo.sql) and run it. It is one
+transaction. It removes only the demo accounts, their events, and every sign-up and notice on
+them, then re-inserts the seed. It is safe to run more than once. Regenerate it with
+`python tools/gen_seed.py` after changing the seed.
 
 ## Run locally (PowerShell)
 
@@ -109,12 +124,32 @@ npm run mock        # http://localhost:4011
 - `MondayJourneyIT`: the Monday definition of done end to end, through sign-in.
 - `OfferExpiryIT`: a lapsed offer reads as expired without a write, the sweeper moves the seat
   on, and accepting a lapsed offer is refused while the seat still moves on.
+- `OfferWindowIT`: the offer window shrinks as the event approaches (24 h, start minus 1 h,
+  30-minute floor, never past the start).
+
+## Decision records
+
+- [ADR 0001: The offer window shrinks as the event approaches](docs/adr/0001-offer-window.md)
+- [ADR 0002: The seat limit is a counter guarded by the database](docs/adr/0002-seat-limit-in-the-database.md)
 
 ## Known limitations
 
-- The offer window is a fixed 24 hours, even close to the event start (decision record pending).
+- Notices are in-platform only (no email or SMS), so a short offer window near the start relies
+  on attendees opening FairSeat.
+- The free Render service sleeps after 15 minutes idle; the first request after that takes about
+  a minute. While it sleeps the offer sweeper does not run, but reads still show lapsed offers as
+  expired and the next write on that event passes the seat on.
 - Tokens last 8 hours with no refresh. An expired token on a public page returns 401; the
   interface should drop it and retry signed out.
 - No admin oversight screens, no notice read-marking, no pagination beyond limit and offset.
-- Free-tier hosting terms: _to be filled in with what was checked on the provider's own pricing
-  page and the date._
+
+## Free tier terms (checked 31 October 2026 on the providers' own pages)
+
+- **Render** ([render.com/docs/free](https://render.com/docs/free)): free web services spin down
+  after 15 minutes without inbound traffic and take about a minute to spin up. Each workspace gets
+  750 free instance hours per calendar month, shared by every free service in it; spun-down
+  services use none. Render's free Postgres expires 30 days after creation, which is why the
+  database is on Neon.
+- **Neon** ([neon.com free plan limits](https://neon.com/faqs/free-plan-limits-and-quotas)):
+  100 CU-hours per project per month, 1 GB storage per project. Compute suspends after 5 minutes
+  idle. If CU-hours run out, compute is suspended until the next billing period; data is kept.

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: FairSeat API
-  version: 0.1.0
+  version: 0.1.1
   summary: Fair seating and waiting lists for free meetups (TeSA Africa capstone, Team 4 side project).
   description: |
     Single source of truth for the FairSeat service. Every operation declares `x-safety`
@@ -11,7 +11,9 @@ info:
     Seat rules the interface can rely on:
     - Confirmed seats (`GOING` plus live `OFFERED`) never exceed `seats`.
     - The waiting list is first come, first served.
-    - An offer lasts 24 hours. A read never changes data, so an offer whose window has passed is
+    - An offer ends 1 hour before the event starts, capped at 24 hours, but always lasts at least
+      30 minutes and never runs past the start (ADR 0001). Always show `offerExpiresAt` rather than
+      assuming a length. A read never changes data, so an offer whose window has passed is
       reported as `OFFER_EXPIRED` on read even before the service has moved the seat on.
     - All data is fictional demonstration data.
   contact:

@@ -3,6 +3,7 @@ package africa.tesa.fairseat.signup;
 import africa.tesa.fairseat.common.Db;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -144,15 +145,26 @@ public class SignupRepository {
                 .optional();
     }
 
-    public void offer(UUID signupId, int windowHours) {
-        jdbc.sql("""
-                        UPDATE signups SET status = 'OFFERED', updated_at = now(),
-                               offer_expires_at = now() + make_interval(hours => :hours)
-                        WHERE id = :id
+    /**
+     * Offers the seat and returns when the offer ends (see docs/adr/0001-offer-window.md):
+     * until 1 hour before the event starts, capped at {@code windowHours}; but always at least
+     * {@code minMinutes}, and never past the start. now() is the transaction's time.
+     */
+    public Instant offer(UUID signupId, int windowHours, int minMinutes) {
+        return jdbc.sql("""
+                        UPDATE signups s SET status = 'OFFERED', updated_at = now(),
+                               offer_expires_at = GREATEST(
+                                   LEAST(now() + make_interval(hours => :hours), e.starts_at - interval '1 hour'),
+                                   LEAST(now() + make_interval(mins => :mins), e.starts_at))
+                        FROM events e
+                        WHERE s.id = :id AND e.id = s.event_id
+                        RETURNING s.offer_expires_at
                         """)
                 .param("id", signupId)
                 .param("hours", windowHours)
-                .update();
+                .param("mins", minMinutes)
+                .query((rs, n) -> Db.instant(rs, "offer_expires_at"))
+                .single();
     }
 
     /** For event cancellation: every active sign-up becomes CANCELLED. Returns the holders. */
