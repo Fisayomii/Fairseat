@@ -46,7 +46,7 @@ class EventImageIT extends IntegrationTestBase {
         HttpResponse<String> r = put("/events/" + eventId + "/image", other.token(),
                 "{\"publicId\":\"fairseat/events/" + eventId + "/cover-1\"}");
         assertThat(r.statusCode()).isEqualTo(403);
-        assertThat(imageColumn(eventId)).isNull();
+        assertThat(hasImage(eventId)).isFalse();
     }
 
     @Test
@@ -81,7 +81,7 @@ class EventImageIT extends IntegrationTestBase {
 
         assertThat(r.statusCode()).isEqualTo(400);
         assertThat(r.body()).contains("\"code\":\"IMAGE_NOT_ALLOWED\"");
-        assertThat(imageColumn(eventId)).isNull();
+        assertThat(hasImage(eventId)).isFalse();
     }
 
     @Test
@@ -131,7 +131,7 @@ class EventImageIT extends IntegrationTestBase {
         HttpResponse<String> removed = delete("/events/" + eventId + "/image", owner.token());
         assertThat(removed.statusCode()).isEqualTo(200);
         assertThat(removed.body()).contains("\"imageUrl\":null");
-        assertThat(imageColumn(eventId)).isNull();
+        assertThat(hasImage(eventId)).isFalse();
     }
 
     @Test
@@ -140,9 +140,10 @@ class EventImageIT extends IntegrationTestBase {
         assertThat(get("/events/" + eventId, null).body()).contains("\"imageUrl\":null");
     }
 
-    private String imageColumn(UUID eventId) {
-        return jdbc.sql("SELECT image_public_id FROM events WHERE id = :id").param("id", eventId)
-                .query(String.class).single();
+    /** Reads the column directly. A boolean, because JdbcClient's single() refuses a null value. */
+    private boolean hasImage(UUID eventId) {
+        return jdbc.sql("SELECT image_public_id IS NOT NULL FROM events WHERE id = :id").param("id", eventId)
+                .query(Boolean.class).single();
     }
 
     private static String field(HttpResponse<String> r, String name) {
