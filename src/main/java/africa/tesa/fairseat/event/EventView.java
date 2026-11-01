@@ -21,6 +21,7 @@ public record EventView(
         int waitingCount,
         String status,
         Organiser organiser,
+        String imageUrl,
         SignupView mySignup,
         Instant asOf) {
 
@@ -29,6 +30,6 @@ public record EventView(
 
     public EventView withMySignup(SignupView signup) {
         return new EventView(id, title, description, category, location, startsAt, endsAt, seats, seatsTaken,
-                seatsAvailable, goingCount, offeredCount, waitingCount, status, organiser, signup, asOf);
+                seatsAvailable, goingCount, offeredCount, waitingCount, status, organiser, imageUrl, signup, asOf);
     }
 }

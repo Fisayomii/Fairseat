@@ -65,7 +65,7 @@ public class SecurityConfig {
     CorsConfigurationSource corsConfigurationSource(@Value("${ALLOWED_ORIGINS:http://localhost:5173}") String origins) {
         CorsConfiguration cors = new CorsConfiguration();
         cors.setAllowedOrigins(Arrays.stream(origins.split(",")).map(String::trim).filter(s -> !s.isEmpty()).toList());
-        cors.setAllowedMethods(List.of("GET", "POST", "PATCH", "OPTIONS"));
+        cors.setAllowedMethods(List.of("GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"));
         cors.setAllowedHeaders(List.of("Authorization", "Content-Type", RequestIdFilter.HEADER));
         cors.setExposedHeaders(List.of(RequestIdFilter.HEADER));
         cors.setMaxAge(3600L);

@@ -1,6 +1,7 @@
 package africa.tesa.fairseat.event;
 
 import africa.tesa.fairseat.common.Db;
+import africa.tesa.fairseat.image.ImageUrls;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
@@ -44,6 +45,7 @@ public class EventRepository {
     private static final String VIEW_SELECT = """
             SELECT e.id, e.title, e.description, e.category, e.location, e.starts_at, e.ends_at, e.seats,
                    e.status, e.organiser_id, u.display_name AS organiser_name, now() AS as_of,
+                   e.image_public_id, e.image_version,
                    (SELECT count(*) FROM signups s WHERE s.event_id = e.id AND s.status = 'GOING') AS going,
                    (SELECT count(*) FROM signups s WHERE s.event_id = e.id AND s.status = 'OFFERED'
                         AND s.offer_expires_at > now()) AS offered,
@@ -51,9 +53,11 @@ public class EventRepository {
             """;
 
     private final JdbcClient jdbc;
+    private final ImageUrls imageUrls;
 
-    public EventRepository(JdbcClient jdbc) {
+    public EventRepository(JdbcClient jdbc, ImageUrls imageUrls) {
         this.jdbc = jdbc;
+        this.imageUrls = imageUrls;
     }
 
     public UUID insert(UUID organiserId, String title, String description, Category category, String location,
@@ -128,6 +132,18 @@ public class EventRepository {
                 .single();
     }
 
+    /** Sets or clears the event's image. Pass nulls to clear. */
+    public void setImage(UUID id, String publicId, Long version) {
+        jdbc.sql("""
+                        UPDATE events SET image_public_id = :publicId, image_version = :version, updated_at = now()
+                        WHERE id = :id
+                        """)
+                .param("id", id)
+                .param("publicId", publicId)
+                .param("version", version)
+                .update();
+    }
+
     public Optional<EventView> findView(UUID id) {
         return jdbc.sql(VIEW_SELECT + " FROM events e JOIN users u ON u.id = e.organiser_id WHERE e.id = :id")
                 .param("id", id)
@@ -190,7 +206,7 @@ public class EventRepository {
         return new Page(items, total[0], asOf);
     }
 
-    private static EventView map(ResultSet rs) throws SQLException {
+    private EventView map(ResultSet rs) throws SQLException {
         int seats = rs.getInt("seats");
         int going = rs.getInt("going");
         int offered = rs.getInt("offered");
@@ -200,6 +216,7 @@ public class EventRepository {
                 Db.instant(rs, "starts_at"), Db.instant(rs, "ends_at"), seats, taken, Math.max(0, seats - taken),
                 going, offered, rs.getInt("waiting"), rs.getString("status"),
                 new EventView.Organiser(Db.uuid(rs, "organiser_id"), rs.getString("organiser_name")),
+                imageUrls.eventImage(rs.getString("image_public_id"), rs.getObject("image_version", Long.class)),
                 null, Db.instant(rs, "as_of"));
     }
 

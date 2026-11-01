@@ -13,10 +13,12 @@ import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -85,6 +87,23 @@ public class EventController {
     @PostMapping("/events/{eventId}/cancellation")
     public EventView cancel(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID eventId) {
         return service.cancel(Caller.required(jwt), eventId);
+    }
+
+    @PostMapping("/events/{eventId}/image-uploads")
+    @ResponseStatus(HttpStatus.CREATED)
+    public EventService.ImageUploadTicket imageUpload(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID eventId) {
+        return service.imageUploadTicket(Caller.required(jwt), eventId);
+    }
+
+    @PutMapping("/events/{eventId}/image")
+    public EventView attachImage(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID eventId,
+                                 @Valid @RequestBody EventService.ImageAttach req) {
+        return service.attachImage(Caller.required(jwt), eventId, req);
+    }
+
+    @DeleteMapping("/events/{eventId}/image")
+    public EventView removeImage(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID eventId) {
+        return service.removeImage(Caller.required(jwt), eventId);
     }
 
     private static ApiException badParam(String name, String message) {

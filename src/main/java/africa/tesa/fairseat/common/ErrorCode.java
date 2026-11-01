@@ -18,6 +18,9 @@ public enum ErrorCode {
     SEATS_BELOW_TAKEN(HttpStatus.CONFLICT),
     OFFER_EXPIRED(HttpStatus.CONFLICT),
     NO_ACTIVE_OFFER(HttpStatus.CONFLICT),
+    IMAGE_NOT_ALLOWED(HttpStatus.BAD_REQUEST),
+    IMAGE_NOT_UPLOADED(HttpStatus.CONFLICT),
+    IMAGES_NOT_CONFIGURED(HttpStatus.SERVICE_UNAVAILABLE),
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR);
 
     private final HttpStatus status;

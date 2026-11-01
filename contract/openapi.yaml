@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: FairSeat API
-  version: 0.1.1
+  version: 0.2.0
   summary: Fair seating and waiting lists for free meetups (TeSA Africa capstone, Team 4 side project).
   description: |
     Single source of truth for the FairSeat service. Every operation declares `x-safety`
@@ -290,6 +290,129 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /events/{eventId}/image-uploads:
+    parameters:
+      - $ref: '#/components/parameters/EventId'
+    post:
+      operationId: createImageUpload
+      tags: [Events]
+      summary: Get a signed ticket to upload the event image
+      description: |
+        The event's organiser or an admin only. Returns a ticket for one direct upload to
+        Cloudinary, valid for an hour. Send `fields` exactly as given, plus `file`, as
+        multipart/form-data to `uploadUrl`. Do not add, rename or change any field, or Cloudinary
+        rejects the signature. Then call PUT /events/{eventId}/image with `publicId`. The file
+        never passes through this service.
+      x-safety: neither
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '201':
+          description: A signed upload ticket.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImageUploadTicket'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ImagesUnavailable'
+
+  /events/{eventId}/image:
+    parameters:
+      - $ref: '#/components/parameters/EventId'
+    put:
+      operationId: setEventImage
+      tags: [Events]
+      summary: Set the event image to an uploaded file
+      description: |
+        The event's organiser or an admin only. `publicId` must be the one from this event's
+        upload ticket. The service checks with Cloudinary that the image exists, is JPG, PNG or
+        WebP, and is 5 MB or less. Replaces any previous image. Sending the same publicId again
+        changes nothing.
+      x-safety: idempotent
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImageAttach'
+      responses:
+        '200':
+          description: The event with its new imageUrl.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Event'
+        '400':
+          description: |
+            VALIDATION_FAILED when publicId is missing; IMAGE_NOT_ALLOWED when it is not this
+            event's upload, or the file is the wrong type or too large.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: IMAGE_NOT_UPLOADED when Cloudinary does not hold the file yet; EVENT_CANCELLED.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          $ref: '#/components/responses/ImagesUnavailable'
+    delete:
+      operationId: removeEventImage
+      tags: [Events]
+      summary: Remove the event image
+      description: The event's organiser or an admin only. The event goes back to having no image (imageUrl null).
+      x-safety: idempotent
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          description: The event, now without an image.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Event'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
   /events/{eventId}/signups:
     parameters:
       - $ref: '#/components/parameters/EventId'
@@ -522,6 +645,15 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
+    ImagesUnavailable:
+      description: IMAGES_NOT_CONFIGURED. Event images are switched off on this deployment; hide image upload.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
     Conflict:
       description: |
         The action does not fit the current state. Codes: EVENT_CANCELLED, EVENT_STARTED,
@@ -536,6 +668,53 @@ components:
             $ref: '#/components/schemas/Error'
 
   schemas:
+    ImageUploadTicket:
+      type: object
+      description: One signed direct upload to Cloudinary, valid until expiresAt.
+      required: [uploadUrl, publicId, expiresAt, maxBytes, allowedFormats, fields]
+      properties:
+        uploadUrl:
+          type: string
+          format: uri
+          description: POST the multipart form here.
+          example: https://api.cloudinary.com/v1_1/demo-cloud/image/upload
+        publicId:
+          type: string
+          description: Send this to PUT /events/{eventId}/image after the upload succeeds.
+          example: fairseat/events/9b2e0c44-0000-4000-8000-000000000201/cover-1761990000
+        expiresAt: { type: string, format: date-time }
+        maxBytes:
+          type: integer
+          description: Check the file size before uploading.
+          example: 5242880
+        allowedFormats:
+          type: array
+          items: { type: string }
+          example: [jpg, png, webp]
+        fields:
+          type: object
+          description: |
+            Form fields to send exactly as given, alongside `file`. Includes api_key, timestamp,
+            public_id, allowed_formats, transformation, signature and sometimes upload_preset.
+          additionalProperties: { type: string }
+          example:
+            timestamp: '1761990000'
+            public_id: fairseat/events/9b2e0c44-0000-4000-8000-000000000201/cover-1761990000
+            allowed_formats: jpg,png,webp
+            transformation: c_limit,w_1600,h_1600
+            api_key: '123456789012345'
+            signature: 3f1c0a9d2b7e4f5a6c8d9e0f1a2b3c4d5e6f7a8b
+
+    ImageAttach:
+      type: object
+      description: The uploaded image to use.
+      required: [publicId]
+      properties:
+        publicId:
+          type: string
+          maxLength: 255
+          example: fairseat/events/9b2e0c44-0000-4000-8000-000000000201/cover-1761990000
+
     Error:
       type: object
       description: Every failure has this shape. Switch on `code`, never on `message`.
@@ -559,6 +738,9 @@ components:
             - SEATS_BELOW_TAKEN
             - OFFER_EXPIRED
             - NO_ACTIVE_OFFER
+            - IMAGE_NOT_ALLOWED
+            - IMAGE_NOT_UPLOADED
+            - IMAGES_NOT_CONFIGURED
             - INTERNAL_ERROR
           example: OFFER_EXPIRED
         message:
@@ -667,7 +849,7 @@ components:
         An event with its seat counts as of `asOf`. `seatsTaken` counts GOING plus live offers.
         `seatsAvailable` can be above zero for up to a minute after an offer lapses while the
         seat is being passed on.
-      required: [id, title, description, category, location, startsAt, endsAt, seats, seatsTaken, seatsAvailable, goingCount, offeredCount, waitingCount, status, organiser, asOf]
+      required: [id, title, description, category, location, startsAt, endsAt, seats, seatsTaken, seatsAvailable, goingCount, offeredCount, waitingCount, status, organiser, imageUrl, asOf]
       properties:
         id: { type: string, format: uuid, example: 9b2e0c44-0000-4000-8000-000000000201 }
         title: { type: string, example: Lagos React Meetup }
@@ -684,6 +866,13 @@ components:
         waitingCount: { type: integer, example: 0 }
         status: { $ref: '#/components/schemas/EventStatus' }
         organiser: { $ref: '#/components/schemas/OrganiserRef' }
+        imageUrl:
+          type: [string, 'null']
+          format: uri
+          description: |
+            Cover image, 1200 x 675, format chosen for the browser. Null when the event has no
+            image: show a default for the category.
+          example: https://res.cloudinary.com/demo-cloud/image/upload/c_fill,w_1200,h_675,f_auto,q_auto/v1761990001/fairseat/events/9b2e0c44-0000-4000-8000-000000000201/cover-1761990000
         mySignup:
           description: The caller's active sign-up for this event, or null. Only set when a token is sent.
           oneOf:

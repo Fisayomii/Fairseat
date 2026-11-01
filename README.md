@@ -18,6 +18,9 @@ Fair seating and waiting lists for free meetups. This is the service tier; the i
   but ends 1 hour before the event starts (always at least 30 minutes, never past the start; see
   [ADR 0001](docs/adr/0001-offer-window.md)). If they do not accept in time the offer becomes
   **offer expired** and the seat goes to the next person.
+- Organisers can add a cover image to their events. It is uploaded straight to Cloudinary with a
+  ticket the service signs ([ADR 0003](docs/adr/0003-event-images-direct-signed-upload.md),
+  [interface guide](docs/event-images-for-the-interface.md)).
 - My Events shows each attendee's true status. In-platform notices report seat offers, lapsed
   offers, and event changes or cancellations.
 
@@ -42,6 +45,7 @@ later.
 
 Java 25, Spring Boot 4.1, Spring Security (JWT resource server, self-issued HS256 tokens,
 BCrypt passwords), Spring JDBC (`JdbcClient`), PostgreSQL 17, Liquibase, Testcontainers.
+Event images on Cloudinary.
 The contract is `contract/openapi.yaml`, linted by Spectral and mocked by Prism.
 
 ## Demo accounts
@@ -111,6 +115,8 @@ npm run mock        # http://localhost:4011
 | `SPRING_DATASOURCE_URL`, `_USERNAME`, `_PASSWORD` | Managed Postgres |
 | `JWT_SECRET` | At least 32 characters. Without it the service uses a development secret and logs a warning. |
 | `ALLOWED_ORIGINS` | Comma-separated interface origins |
+| `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` | Event images. Without them the service still runs; image endpoints answer 503 and every `imageUrl` is null. |
+| `CLOUDINARY_UPLOAD_PRESET` | Optional signed upload preset, for example one with a file size cap |
 
 ## Tests that prove the rules
 
@@ -124,6 +130,10 @@ npm run mock        # http://localhost:4011
 - `MondayJourneyIT`: the Monday definition of done end to end, through sign-in.
 - `OfferExpiryIT`: a lapsed offer reads as expired without a write, the sweeper moves the seat
   on, and accepting a lapsed offer is refused while the seat still moves on.
+- `EventImageIT`: only the event's organiser can get an upload ticket or set the image; the
+  ticket is signed correctly; an image from another event's folder, one never uploaded, or one of
+  the wrong type or size is refused. Cloudinary is mocked.
+- `ImageSignerTest` (unit, no Docker): the signer reproduces Cloudinary's published example.
 - `OfferWindowIT`: the offer window shrinks as the event approaches (24 h, start minus 1 h,
   30-minute floor, never past the start).
 
@@ -131,6 +141,7 @@ npm run mock        # http://localhost:4011
 
 - [ADR 0001: The offer window shrinks as the event approaches](docs/adr/0001-offer-window.md)
 - [ADR 0002: The seat limit is a counter guarded by the database](docs/adr/0002-seat-limit-in-the-database.md)
+- [ADR 0003: Event images are uploaded straight to Cloudinary with a signed ticket](docs/adr/0003-event-images-direct-signed-upload.md)
 
 ## Known limitations
 
@@ -141,6 +152,9 @@ npm run mock        # http://localhost:4011
   expired and the next write on that event passes the seat on.
 - Tokens last 8 hours with no refresh. An expired token on a public page returns 401; the
   interface should drop it and retry signed out.
+- Event images: replaced or removed images stay in Cloudinary (not deleted), and there is no
+  moderation of what organisers upload. Seed events have no images; the interface shows a default
+  per category.
 - No admin oversight screens, no notice read-marking, no pagination beyond limit and offset.
 
 ## Free tier terms (checked 31 October 2026 on the providers' own pages)
@@ -153,3 +167,11 @@ npm run mock        # http://localhost:4011
 - **Neon** ([neon.com free plan limits](https://neon.com/faqs/free-plan-limits-and-quotas)):
   100 CU-hours per project per month, 1 GB storage per project. Compute suspends after 5 minutes
   idle. If CU-hours run out, compute is suspended until the next billing period; data is kept.
+- **Cloudinary** (checked 1 November 2026, [cloudinary.com/pricing](https://cloudinary.com/pricing)
+  and the [credits FAQ](https://cloudinary.com/documentation/developer_onboarding_faq_credits)):
+  the Free plan is "free forever", needs no card, and gives 25 monthly credits for 3 users and 1
+  account. One credit covers 1,000 transformations, 1 GB of managed storage or 1 GB of bandwidth,
+  in any mix, measured over a rolling 30 days. The pricing page does not state the Free plan's
+  maximum file size (it says the Plus plan raises images to 20 MB); FairSeat caps uploads at 5 MB
+  itself. Images are delivered at 1200 × 675 with automatic format and quality to keep bandwidth
+  low.

@@ -5,6 +5,9 @@ import africa.tesa.fairseat.auth.Role;
 import africa.tesa.fairseat.common.ApiException;
 import africa.tesa.fairseat.common.ErrorCode;
 import africa.tesa.fairseat.event.EventRepository.LockedEvent;
+import africa.tesa.fairseat.image.CloudinaryConfig;
+import africa.tesa.fairseat.image.ImageSigner;
+import africa.tesa.fairseat.image.ImageStore;
 import africa.tesa.fairseat.notice.NoticeRepository;
 import africa.tesa.fairseat.notice.NoticeRepository.Kind;
 import africa.tesa.fairseat.signup.SeatAllocator;
@@ -15,11 +18,14 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -55,19 +61,40 @@ public class EventService {
         }
     }
 
+    /** A signed upload: post {@code fields} plus the file, as multipart form data, to {@code uploadUrl}. */
+    public record ImageUploadTicket(String uploadUrl, String publicId, Instant expiresAt, long maxBytes,
+                                    List<String> allowedFormats, Map<String, String> fields) {
+    }
+
+    public record ImageAttach(@NotBlank @Size(max = 255) String publicId) {
+    }
+
+    static final long MAX_IMAGE_BYTES = 5L * 1024 * 1024;
+    static final List<String> IMAGE_FORMATS = List.of("jpg", "png", "webp");
+    private static final Set<String> STORED_FORMATS = Set.of("jpg", "jpeg", "png", "webp");
+    /** Cloudinary accepts a signature for one hour. */
+    private static final long TICKET_SECONDS = 3600;
+    /** Stored images are scaled down to fit 1600 x 1600 on the way in, never up. */
+    private static final String INCOMING_TRANSFORMATION = "c_limit,w_1600,h_1600";
+
     private final EventRepository events;
     private final SignupRepository signups;
     private final SeatAllocator allocator;
     private final NoticeRepository notices;
     private final TransactionTemplate tx;
+    private final CloudinaryConfig cloudinary;
+    private final ImageStore images;
 
     public EventService(EventRepository events, SignupRepository signups, SeatAllocator allocator,
-                        NoticeRepository notices, TransactionTemplate tx) {
+                        NoticeRepository notices, TransactionTemplate tx, CloudinaryConfig cloudinary,
+                        ImageStore images) {
         this.events = events;
         this.signups = signups;
         this.allocator = allocator;
         this.notices = notices;
         this.tx = tx;
+        this.cloudinary = cloudinary;
+        this.images = images;
     }
 
     public EventView create(Caller caller, EventCreate req) {
@@ -155,6 +182,87 @@ public class EventService {
             LOG.info("Cancelled event={} by={} notified={}", id, caller.id(), holders.size());
         });
         return events.findView(id).orElseThrow();
+    }
+
+    // ---- event image (ADR 0003) -----------------------------------------------------------------
+
+    /**
+     * Signs one direct upload to Cloudinary for this event. The browser can only upload to the
+     * public id signed here, in the allowed formats, within the hour.
+     */
+    public ImageUploadTicket imageUploadTicket(Caller caller, UUID id) {
+        caller.requireRole(Role.ORGANISER, Role.ADMIN);
+        requireImagesConfigured();
+        tx.executeWithoutResult(status -> requireEditable(lockOwned(caller, id)));
+        long timestamp = Instant.now().getEpochSecond();
+        String publicId = "fairseat/events/" + id + "/cover-" + timestamp;
+
+        Map<String, String> signed = new LinkedHashMap<>();
+        signed.put("timestamp", Long.toString(timestamp));
+        signed.put("public_id", publicId);
+        signed.put("allowed_formats", String.join(",", IMAGE_FORMATS));
+        signed.put("transformation", INCOMING_TRANSFORMATION);
+        if (!cloudinary.uploadPreset().isEmpty()) {
+            signed.put("upload_preset", cloudinary.uploadPreset());
+        }
+        Map<String, String> fields = new LinkedHashMap<>(signed);
+        fields.put("api_key", cloudinary.apiKey());
+        fields.put("signature", ImageSigner.sign(signed, cloudinary.apiSecret()));
+
+        LOG.info("Image upload ticket event={} by={}", id, caller.id());
+        return new ImageUploadTicket("https://api.cloudinary.com/v1_1/" + cloudinary.cloudName() + "/image/upload",
+                publicId, Instant.ofEpochSecond(timestamp + TICKET_SECONDS), MAX_IMAGE_BYTES, IMAGE_FORMATS,
+                Map.copyOf(fields));
+    }
+
+    /**
+     * Sets the event's image to one already uploaded. The service asks Cloudinary itself whether
+     * the image exists and at which version, so a browser cannot point an event at someone else's
+     * image or at one that was never uploaded.
+     */
+    public EventView attachImage(Caller caller, UUID id, ImageAttach req) {
+        caller.requireRole(Role.ORGANISER, Role.ADMIN);
+        requireImagesConfigured();
+        tx.executeWithoutResult(status -> requireEditable(lockOwned(caller, id)));
+        Pattern own = Pattern.compile("^fairseat/events/" + Pattern.quote(id.toString()) + "/cover-\\d{1,12}$");
+        if (!own.matcher(req.publicId()).matches()) {
+            throw new ApiException(ErrorCode.IMAGE_NOT_ALLOWED,
+                    "That image was not uploaded for this event. Request a new upload and try again.");
+        }
+        var stored = images.find(req.publicId()).orElseThrow(() -> new ApiException(ErrorCode.IMAGE_NOT_UPLOADED,
+                "The image has not finished uploading. Upload it, then try again."));
+        if (!STORED_FORMATS.contains(stored.format()) || stored.bytes() > MAX_IMAGE_BYTES) {
+            throw new ApiException(ErrorCode.IMAGE_NOT_ALLOWED, "Use a JPG, PNG or WebP image of 5 MB or less.");
+        }
+        tx.executeWithoutResult(status -> {
+            requireEditable(lockOwned(caller, id));
+            events.setImage(id, stored.publicId(), stored.version());
+        });
+        LOG.info("Image set event={} publicId={} version={}", id, stored.publicId(), stored.version());
+        return events.findView(id).orElseThrow();
+    }
+
+    /** Removes the event's image. The file stays in Cloudinary (see README limitations). */
+    public EventView removeImage(Caller caller, UUID id) {
+        caller.requireRole(Role.ORGANISER, Role.ADMIN);
+        tx.executeWithoutResult(status -> {
+            requireEditable(lockOwned(caller, id));
+            events.setImage(id, null, null);
+        });
+        LOG.info("Image removed event={} by={}", id, caller.id());
+        return events.findView(id).orElseThrow();
+    }
+
+    private void requireImagesConfigured() {
+        if (!cloudinary.configured()) {
+            throw new ApiException(ErrorCode.IMAGES_NOT_CONFIGURED, "Event images are not available right now.");
+        }
+    }
+
+    private static void requireEditable(LockedEvent event) {
+        if (event.cancelled()) {
+            throw new ApiException(ErrorCode.EVENT_CANCELLED, "A cancelled event cannot be edited.");
+        }
     }
 
     /** Organisers manage only their own events. Admins manage any. Checked here, not in the interface. */

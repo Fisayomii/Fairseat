@@ -3,6 +3,7 @@ package africa.tesa.fairseat;
 import africa.tesa.fairseat.auth.Role;
 import africa.tesa.fairseat.auth.TokenService;
 import africa.tesa.fairseat.common.Db;
+import africa.tesa.fairseat.image.ImageStore;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -18,14 +19,18 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 /**
  * Real Postgres in a container, real HTTP on a random port. One container for every test class
- * so the Spring context is shared. The offer sweeper's timer is off so tests control timing.
+ * so the Spring context is shared. The offer sweeper's timer is off so tests control timing, and
+ * Cloudinary is replaced by a mock with fake credentials.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = "fairseat.offers.sweep-enabled=false")
+        properties = {"fairseat.offers.sweep-enabled=false",
+            "CLOUDINARY_CLOUD_NAME=test-cloud", "CLOUDINARY_API_KEY=123456789012345",
+            "CLOUDINARY_API_SECRET=test-secret-not-real"})
 public abstract class IntegrationTestBase {
 
     @ServiceConnection
@@ -49,6 +54,10 @@ public abstract class IntegrationTestBase {
 
     @Autowired
     protected PasswordEncoder passwords;
+
+    /** Stands in for Cloudinary so tests never call the internet. Reset after each test. */
+    @MockitoBean
+    protected ImageStore imageStore;
 
     protected final HttpClient http = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build();
 
@@ -114,6 +123,15 @@ public abstract class IntegrationTestBase {
     protected HttpResponse<String> post(String path, String token, String json) {
         return send(request(path, token).header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(json == null ? "" : json)));
+    }
+
+    protected HttpResponse<String> put(String path, String token, String json) {
+        return send(request(path, token).header("Content-Type", "application/json")
+                .PUT(HttpRequest.BodyPublishers.ofString(json)));
+    }
+
+    protected HttpResponse<String> delete(String path, String token) {
+        return send(request(path, token).DELETE());
     }
 
     protected HttpResponse<String> patch(String path, String token, String json) {
